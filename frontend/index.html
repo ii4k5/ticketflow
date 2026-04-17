@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TicketFlow — Live Event Ticketing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #09090b;
+    --deep: #111115;
+    --surface: #18181c;
+    --surface2: #222228;
+    --border: #2e2e36;
+    --muted: #6b6b7a;
+    --text: #e8e8f0;
+    --text2: #a8a8b8;
+    --accent: #f97316;
+    --accent2: #fb923c;
+    --accent-dim: rgba(249,115,22,0.12);
+    --green: #22c55e;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --yellow: #eab308;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Background Grid ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(249,115,22,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(249,115,22,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(9,9,11,0.85);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+
+  nav { display: flex; gap: 4px; }
+  nav button {
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+  }
+  nav button:hover { color: var(--text); background: var(--surface); }
+  nav button.active { color: var(--accent); background: var(--accent-dim); }
+
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  /* ── Notification Bell ── */
+  .notif-btn {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 38px; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 18px;
+    transition: all 0.2s;
+  }
+  .notif-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .notif-badge {
+    position: absolute;
+    top: -4px; right: -4px;
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .notif-badge.hidden { display: none; }
+
+  /* ── User Pill ── */
+  .user-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 6px 16px 6px 6px;
+  }
+  .avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #c2410c);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 1px;
+  }
+  .user-name { font-size: 13px; font-weight: 500; }
+
+  /* ── Main Content ── */
+  main { flex: 1; padding: 32px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+  /* ── Section ── */
+  .section { display: none; animation: fadeIn 0.3s ease; }
+  .section.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── Section Header ── */
+  .section-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 28px; }
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 2px;
+    line-height: 1;
+    color: var(--text);
+  }
+  .section-title span { color: var(--accent); }
+  .section-subtitle { color: var(--text2); font-size: 14px; margin-top: 4px; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: var(--muted); }
+
+  /* ── Event Cards Grid ── */
+  .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+
+  .event-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: all 0.25s;
+    cursor: pointer;
+  }
+  .event-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(249,115,22,0.1); }
+
+  .event-banner {
+    height: 120px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    padding: 16px;
+  }
+  .event-banner-bg {
+    position: absolute;
+    inset: 0;
+    opacity: 0.85;
+  }
+  .banner-concert { background: linear-gradient(135deg, #1a0533, #7c3aed, #c026d3); }
+  .banner-conference { background: linear-gradient(135deg, #0c1a3b, #1d4ed8, #0ea5e9); }
+  .banner-sports { background: linear-gradient(135deg, #0c2a0c, #16a34a, #84cc16); }
+  .banner-music { background: linear-gradient(135deg, #2d1b00, #d97706, #f59e0b); }
+  .banner-general { background: linear-gradient(135deg, #1a1a2e, #4a4a8a, #7c7cba); }
+
+  .event-category-badge {
+    position: relative;
+    z-index: 1;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(8px);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 50px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+
+  .event-body { padding: 18px; }
+  .event-name { font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.3; }
+  .event-meta { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+  .event-meta-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+  .event-meta-item .icon { font-size: 14px; }
+
+  .event-footer { display: flex; align-items: center; justify-content: space-between; }
+  .event-price { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; color: var(--accent); }
+  .event-price small { font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text2); font-weight: 400; display: block; letter-spacing: 0; }
+
+  .seats-bar-wrap { margin-top: 12px; }
+  .seats-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+  .seats-bar { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+  .seats-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+  .seats-fill.high { background: var(--green); }
+  .seats-fill.mid { background: var(--yellow); }
+  .seats-fill.low { background: var(--red); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: var(--radius);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(249,115,22,0.3); }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-ghost { background: none; color: var(--text2); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+  .btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .btn-danger:hover { background: rgba(239,68,68,0.25); }
+  .btn-sm { padding: 7px 14px; font-size: 13px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+  /* ── Forms ── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .form-group { display: flex; flex-direction: column; gap: 8px; }
+  .form-group.full { grid-column: 1 / -1; }
+  label { font-size: 13px; font-weight: 500; color: var(--text2); letter-spacing: 0.3px; }
+  input, select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+  input::placeholder { color: var(--muted); }
+
+  /* ── Auth Forms ── */
+  .auth-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    max-width: 900px;
+  }
+  .auth-card { }
+  .auth-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; margin-bottom: 20px; color: var(--text); }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 24px; padding-bottom: 0; }
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Status badges ── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 50px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .badge-green { background: rgba(34,197,94,0.12); color: var(--green); }
+  .badge-red { background: rgba(239,68,68,0.12); color: var(--red); }
+  .badge-blue { background: rgba(59,130,246,0.12); color: var(--blue); }
+  .badge-orange { background: var(--accent-dim); color: var(--accent); }
+  .badge-yellow { background: rgba(234,179,8,0.12); color: var(--yellow); }
+
+  /* ── Tickets list ── */
+  .ticket-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+    transition: border-color 0.2s;
+  }
+  .ticket-item:hover { border-color: var(--muted); }
+  .ticket-item.cancelled { opacity: 0.5; }
+  .ticket-left { flex: 1; }
+  .ticket-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .ticket-sub { font-size: 13px; color: var(--text2); }
+  .ticket-price { font-family: 'Bebas Neue', sans-serif; font-size: 24px; color: var(--accent); margin-right: 16px; letter-spacing: 1px; }
+
+  /* ── Notifications ── */
+  .notif-item {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .notif-item:hover { background: var(--surface2); }
+  .notif-item.unread { background: rgba(249,115,22,0.03); }
+  .notif-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+  .notif-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+  .notif-msg { font-size: 13px; color: var(--text2); line-height: 1.5; }
+  .notif-time { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+  .notif-unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 6px; }
+
+  /* ── Stats row ── */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .stat-label { font-size: 12px; color: var(--text2); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 8px; }
+  .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 1px; color: var(--text); }
+  .stat-value.accent { color: var(--accent); }
+
+  /* ── Alert ── */
+  .alert {
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .alert-success { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); color: var(--green); }
+  .alert-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: var(--red); }
+  .alert-info { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.25); color: var(--blue); }
+  .alert.hidden { display: none; }
+
+  /* ── Booking Modal ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal {
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 480px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; padding: 4px; border-radius: 6px; transition: color 0.2s; }
+  .modal-close:hover { color: var(--text); }
+
+  /* ── Toast ── */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    font-size: 14px;
+    min-width: 280px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    animation: slideIn 0.3s ease;
+  }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--blue); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-title { font-size: 18px; font-weight: 600; color: var(--text2); margin-bottom: 8px; }
+
+  /* ── Kafka event log ── */
+  .event-log {
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .log-line { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .log-time { color: var(--muted); }
+  .log-topic { color: var(--blue); }
+  .log-event { color: var(--accent); }
+  .log-detail { color: var(--text2); }
+
+  /* ── Service status ── */
+  .services-status { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+  .service-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .service-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .service-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .service-dot.offline { background: var(--red); }
+  .service-dot.checking { background: var(--yellow); animation: pulse 1s ease-in-out infinite; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    header { padding: 12px 16px; }
+    main { padding: 20px 16px; }
+    .auth-wrap { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+    nav button span { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <a class="logo" href="#">
+      <div class="logo-dot"></div>
+      TICKETFLOW
+    </a>
+    <nav>
+      <button class="active" onclick="showSection('events')" id="nav-events">🎭 <span>Events</span></button>
+      <button onclick="showSection('my-tickets')" id="nav-my-tickets">🎫 <span>My Tickets</span></button>
+      <button onclick="showSection('notifications')" id="nav-notifications">🔔 <span>Notifications</span></button>
+      <button onclick="showSection('auth')" id="nav-auth">👤 <span>Account</span></button>
+      <button onclick="showSection('dashboard')" id="nav-dashboard">📊 <span>Dashboard</span></button>
+    </nav>
+    <div class="header-right">
+      <button class="notif-btn" onclick="showSection('notifications')">
+        🔔
+        <span class="notif-badge hidden" id="notif-count">0</span>
+      </button>
+      <div class="user-pill" id="user-pill" style="display:none">
+        <div class="avatar" id="user-avatar">?</div>
+        <span class="user-name" id="user-name-display">User</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main>
+
+    <!-- ── Events Section ── -->
+    <div class="section active" id="section-events">
+      <div class="section-header">
+        <div>
+          <div class="section-title">LIVE <span>EVENTS</span></div>
+          <div class="section-subtitle">Browse and book tickets for the hottest upcoming events</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadEvents()">↻ Refresh</button>
+      </div>
+
+      <div id="events-alert" class="alert alert-info hidden"></div>
+
+      <div class="events-grid" id="events-grid">
+        <div style="color:var(--muted); padding: 40px; text-align:center; grid-column: 1/-1">Loading events...</div>
+      </div>
+    </div>
+
+    <!-- ── My Tickets Section ── -->
+    <div class="section" id="section-my-tickets">
+      <div class="section-header">
+        <div>
+          <div class="section-title">MY <span>TICKETS</span></div>
+          <div class="section-subtitle">Your booking history and active tickets</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadMyTickets()">↻ Refresh</button>
+      </div>
+
+      <div id="tickets-alert" class="alert hidden"></div>
+      <div id="tickets-list">
+        <div class="empty-state">
+          <div class="empty-icon">🎫</div>
+          <div class="empty-title">No tickets yet</div>
+          <p>Browse events and book your first ticket!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Notifications Section ── -->
+    <div class="section" id="section-notifications">
+      <div class="section-header">
+        <div>
+          <div class="section-title">NOTIFI<span>CATIONS</span></div>
+          <div class="section-subtitle">Real-time updates from Kafka event streams</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadNotifications()">↻ Refresh</button>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden">
+        <div id="notifications-list">
+          <div class="empty-state">
+            <div class="empty-icon">🔔</div>
+            <div class="empty-title">No notifications</div>
+            <p>Events will appear here as they happen</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Auth Section ── -->
+    <div class="section" id="section-auth">
+      <div class="section-header">
+        <div>
+          <div class="section-title">YOUR <span>ACCOUNT</span></div>
+          <div class="section-subtitle">Register or login to book tickets</div>
+        </div>
+      </div>
+
+      <div id="auth-logged-in" style="display:none">
+        <div class="card">
+          <div style="display:flex; align-items:center; gap:20px; margin-bottom:20px">
+            <div class="avatar" id="auth-avatar" style="width:64px;height:64px;font-size:24px">?</div>
+            <div>
+              <div style="font-size:22px; font-weight:700" id="auth-name">Name</div>
+              <div style="color:var(--text2); font-size:14px" id="auth-email">email</div>
+              <div style="margin-top:8px"><span class="badge badge-green">● Active</span></div>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="logout()">Sign out</button>
+        </div>
+      </div>
+
+      <div id="auth-forms" class="auth-wrap">
+        <!-- Register -->
+        <div class="card auth-card">
+          <div class="auth-title">REGISTER</div>
+          <div id="reg-alert" class="alert hidden"></div>
+          <div style="display:flex; flex-direction:column; gap:14px">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input id="reg-name" type="text" placeholder="Ahmed Hassan">
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input id="reg-email" type="email" placeholder="ahmed@example.com">
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input id="reg-password" type="password" placeholder="••••••••">
+            </div>
+            <button class="btn btn-primary" onclick="register()">Create Account →</button>
+          </div>
+        </div>
+
+        <!-- Login -->
+        <div class="card auth-card">
+          <div class="auth-title">LOGIN</div>
+          <div id="login-alert" class="alert hidden"></div>
+          <div style="display:flex; flex-direction:column; gap:14px">
+            <div class="form-group">
+              <label>Email</label>
+              <input id="login-email" type="email" placeholder="ahmed@example.com">
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input id="login-password" type="password" placeholder="••••••••">
+            </div>
+            <button class="btn btn-primary" onclick="login()">Sign In →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Dashboard Section ── -->
+    <div class="section" id="section-dashboard">
+      <div class="section-header">
+        <div>
+          <div class="section-title">SYSTEM <span>DASHBOARD</span></div>
+          <div class="section-subtitle">Microservices health, Kafka topics & live metrics</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadDashboard()">↻ Refresh</button>
+      </div>
+
+      <!-- Service Status -->
+      <div style="margin-bottom:24px">
+        <div style="font-size:13px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:12px">Service Health</div>
+        <div class="services-status">
+          <div class="service-chip"><div class="service-dot checking" id="dot-user"></div>User Service :3001</div>
+          <div class="service-chip"><div class="service-dot checking" id="dot-ticket"></div>Ticket Service :3002</div>
+          <div class="service-chip"><div class="service-dot checking" id="dot-notif"></div>Notification Service :3003</div>
+          <div class="service-chip"><div class="service-dot online"></div>Kafka Broker :9092</div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="stat-label">Total Events</div><div class="stat-value accent" id="stat-events">—</div></div>
+        <div class="stat-card"><div class="stat-label">Notifications</div><div class="stat-value" id="stat-notifs">—</div></div>
+        <div class="stat-card"><div class="stat-label">Unread Alerts</div><div class="stat-value accent" id="stat-unread">—</div></div>
+        <div class="stat-card"><div class="stat-label">Topics Active</div><div class="stat-value">2</div></div>
+      </div>
+
+      <!-- Kafka Topics -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px">
+        <div class="card">
+          <div style="font-size:13px; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px">
+            <span style="color:var(--blue)">▶</span> Topic: <code style="color:var(--accent); font-family:'JetBrains Mono', monospace">user-events</code>
+          </div>
+          <div style="font-size:13px; color:var(--text2); margin-bottom:8px">Published by: <strong>User Service</strong></div>
+          <div style="font-size:13px; color:var(--text2); margin-bottom:12px">Consumed by: <strong>Ticket Service, Notification Service</strong></div>
+          <div style="font-size:12px; color:var(--muted); font-family:'JetBrains Mono',monospace">Events: UserRegistered</div>
+        </div>
+        <div class="card">
+          <div style="font-size:13px; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px">
+            <span style="color:var(--green)">▶</span> Topic: <code style="color:var(--accent); font-family:'JetBrains Mono', monospace">ticket-events</code>
+          </div>
+          <div style="font-size:13px; color:var(--text2); margin-bottom:8px">Published by: <strong>Ticket Service</strong></div>
+          <div style="font-size:13px; color:var(--text2); margin-bottom:12px">Consumed by: <strong>Notification Service</strong></div>
+          <div style="font-size:12px; color:var(--muted); font-family:'JetBrains Mono',monospace">Events: TicketBooked, TicketCancelled, LowSeatsAlert</div>
+        </div>
+      </div>
+
+      <!-- Architecture diagram -->
+      <div class="card">
+        <div style="font-size:13px; font-weight:600; margin-bottom:16px">Architecture Overview</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text2); line-height:2">
+          <div>┌─────────────────────────────────────────────────────────────────────┐</div>
+          <div>│                      <span style="color:var(--accent)">NGINX API GATEWAY :80</span>                         │</div>
+          <div>└──────┬───────────────────────┬─────────────────────┬────────────────┘</div>
+          <div>       │ /api/users             │ /api/events          │ /api/notifications</div>
+          <div>       ▼                        ▼                      ▼</div>
+          <div>┌──────────────┐  ┌─────────────────────┐  ┌──────────────────────┐</div>
+          <div>│ <span style="color:var(--blue)">USER SERVICE</span>  │  │  <span style="color:var(--green)">TICKET SERVICE</span>    │  │ <span style="color:var(--yellow)">NOTIFICATION SERVICE</span> │</div>
+          <div>│     :3001    │  │       :3002          │  │        :3003         │</div>
+          <div>└──────┬───────┘  └──────┬───────────────┘  └──────────────────────┘</div>
+          <div>       │                  │                          ▲</div>
+          <div>       │  UserRegistered  │  TicketBooked            │  Consuming</div>
+          <div>       └──────────────────┴──────────────────────────┘</div>
+          <div>                          <span style="color:var(--accent)">APACHE KAFKA :9092</span></div>
+          <div>                     Topics: user-events, ticket-events</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Booking Modal -->
+<div class="modal-overlay hidden" id="booking-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">BOOK <span style="color:var(--accent)">TICKETS</span></div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-event-info" style="margin-bottom:24px; padding:16px; background:var(--surface2); border-radius:var(--radius)"></div>
+    <div id="booking-alert" class="alert hidden"></div>
+    <div style="display:flex; flex-direction:column; gap:14px">
+      <div class="form-group">
+        <label>Quantity</label>
+        <input id="book-qty" type="number" min="1" max="10" value="1">
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:12px; background:var(--surface2); border-radius:var(--radius)">
+        <span style="color:var(--text2); font-size:13px">Total</span>
+        <span id="book-total" style="font-family:'Bebas Neue',sans-serif; font-size:28px; color:var(--accent)">$0</span>
+      </div>
+      <button class="btn btn-primary" onclick="confirmBooking()" id="book-btn">Confirm Booking →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  const API = {
+    user: window.location.port === '80' || window.location.port === '' ? '' : 'http://localhost',
+    // When served via nginx, all routes go through /api/...
+    // For direct dev, you can adjust these
+  };
+
+  const BASE = ''; // Relative URLs — nginx proxies /api/* to services
+
+  let currentUser = JSON.parse(localStorage.getItem('tf_user') || 'null');
+  let selectedEvent = null;
+  let allNotifications = [];
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    document.getElementById('nav-' + name).classList.add('active');
+
+    if (name === 'events') loadEvents();
+    if (name === 'my-tickets') loadMyTickets();
+    if (name === 'notifications') loadNotifications();
+    if (name === 'dashboard') loadDashboard();
+    if (name === 'auth') renderAuth();
+  }
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function toast(msg, type = 'info') {
+    const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`;
+    document.getElementById('toast-container').appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.className = `alert alert-${type}`;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+  function hideAlert(id) { document.getElementById(id).classList.add('hidden'); }
+
+  // ── API helpers ────────────────────────────────────────────────────────────
+  async function api(path, opts = {}) {
+    const res = await fetch(BASE + path, {
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  }
+
+  // ── Events ─────────────────────────────────────────────────────────────────
+  function getCategoryClass(cat) {
+    const map = { Concert: 'banner-concert', Conference: 'banner-conference', Sports: 'banner-sports', Music: 'banner-music' };
+    return map[cat] || 'banner-general';
+  }
+
+  async function loadEvents() {
+    try {
+      const events = await api('/api/events');
+      const grid = document.getElementById('events-grid');
+      if (!events.length) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🎭</div><div class="empty-title">No events available</div></div>';
+        return;
+      }
+      grid.innerHTML = events.map(e => {
+        const pct = (e.availableSeats / e.totalSeats) * 100;
+        const fillClass = pct > 50 ? 'high' : pct > 20 ? 'mid' : 'low';
+        const date = new Date(e.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+        return `
+          <div class="event-card" onclick="openBookingModal('${e.id}')">
+            <div class="event-banner">
+              <div class="event-banner-bg ${getCategoryClass(e.category)}"></div>
+              <span class="event-category-badge">${e.category}</span>
+            </div>
+            <div class="event-body">
+              <div class="event-name">${e.name}</div>
+              <div class="event-meta">
+                <div class="event-meta-item"><span class="icon">📍</span>${e.venue}</div>
+                <div class="event-meta-item"><span class="icon">📅</span>${date}</div>
+              </div>
+              <div class="seats-bar-wrap">
+                <div class="seats-label">
+                  <span>${e.availableSeats} seats left</span>
+                  <span>${Math.round(pct)}% available</span>
+                </div>
+                <div class="seats-bar"><div class="seats-fill ${fillClass}" style="width:${pct}%"></div></div>
+              </div>
+              <div class="event-footer" style="margin-top:14px">
+                <div class="event-price">$${e.price}<small>per ticket</small></div>
+                <button class="btn btn-primary btn-sm" ${e.availableSeats === 0 ? 'disabled' : ''}>
+                  ${e.availableSeats === 0 ? 'Sold Out' : 'Book Now →'}
+                </button>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    } catch(err) {
+      showAlert('events-alert', 'Could not load events: ' + err.message, 'error');
+    }
+  }
+
+  // ── Booking Modal ──────────────────────────────────────────────────────────
+  async function openBookingModal(eventId) {
+    if (!currentUser) { toast('Please login to book tickets', 'error'); showSection('auth'); return; }
+    try {
+      const ev = await api('/api/events/' + eventId);
+      selectedEvent = ev;
+      const date = new Date(ev.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      document.getElementById('modal-event-info').innerHTML = `
+        <div style="font-size:16px; font-weight:700; margin-bottom:8px">${ev.name}</div>
+        <div style="font-size:13px; color:var(--text2)">📍 ${ev.venue} &nbsp;·&nbsp; 📅 ${date}</div>
+        <div style="margin-top:8px; font-size:13px; color:var(--text2)">${ev.availableSeats} seats available</div>
+      `;
+      document.getElementById('book-qty').value = 1;
+      document.getElementById('book-qty').max = Math.min(10, ev.availableSeats);
+      updateTotal();
+      hideAlert('booking-alert');
+      document.getElementById('booking-modal').classList.remove('hidden');
+    } catch(err) { toast(err.message, 'error'); }
+  }
+
+  function updateTotal() {
+    if (!selectedEvent) return;
+    const qty = parseInt(document.getElementById('book-qty').value) || 1;
+    document.getElementById('book-total').textContent = '$' + (selectedEvent.price * qty);
+  }
+  document.getElementById('book-qty').addEventListener('input', updateTotal);
+
+  function closeModal() {
+    document.getElementById('booking-modal').classList.add('hidden');
+    selectedEvent = null;
+  }
+
+  async function confirmBooking() {
+    if (!selectedEvent || !currentUser) return;
+    const qty = parseInt(document.getElementById('book-qty').value) || 1;
+    const btn = document.getElementById('book-btn');
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+    try {
+      const ticket = await api('/api/tickets/book', {
+        method: 'POST',
+        body: { userId: currentUser.id, eventId: selectedEvent.id, userName: currentUser.name, userEmail: currentUser.email, quantity: qty }
+      });
+      closeModal();
+      toast(`🎫 Booked ${qty} ticket(s) for ${ticket.eventName}!`, 'success');
+      loadEvents();
+      setTimeout(loadNotifications, 2000);
+    } catch(err) {
+      showAlert('booking-alert', err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirm Booking →';
+    }
+  }
+
+  // ── My Tickets ─────────────────────────────────────────────────────────────
+  async function loadMyTickets() {
+    if (!currentUser) {
+      document.getElementById('tickets-list').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🔐</div>
+          <div class="empty-title">Login required</div>
+          <p>Please login to view your tickets</p>
+          <button class="btn btn-primary" style="margin-top:16px" onclick="showSection('auth')">Login →</button>
+        </div>`;
+      return;
+    }
+    try {
+      const tickets = await api('/api/tickets/user/' + currentUser.id);
+      if (!tickets.length) {
+        document.getElementById('tickets-list').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🎫</div>
+            <div class="empty-title">No tickets yet</div>
+            <p>Browse events and book your first ticket!</p>
+            <button class="btn btn-primary" style="margin-top:16px" onclick="showSection('events')">Browse Events →</button>
+          </div>`;
+        return;
+      }
+      document.getElementById('tickets-list').innerHTML = tickets.map(t => {
+        const date = new Date(t.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const booked = new Date(t.bookedAt).toLocaleDateString();
+        return `
+          <div class="ticket-item ${t.status === 'cancelled' ? 'cancelled' : ''}">
+            <div class="ticket-left">
+              <div class="ticket-name">${t.eventName}</div>
+              <div class="ticket-sub">📍 ${t.venue} &nbsp;·&nbsp; 📅 ${date} &nbsp;·&nbsp; ${t.quantity} ticket${t.quantity>1?'s':''}</div>
+              <div style="margin-top:8px; font-size:12px; color:var(--muted)">Booked: ${booked} &nbsp;·&nbsp; ID: <code style="font-family:'JetBrains Mono',monospace">${t.id.slice(0,8)}...</code></div>
+            </div>
+            <div class="ticket-price">$${t.totalPrice}</div>
+            <div>
+              <span class="badge ${t.status === 'confirmed' ? 'badge-green' : 'badge-red'}">${t.status.toUpperCase()}</span>
+              ${t.status === 'confirmed' ? `<br><button class="btn btn-danger btn-sm" style="margin-top:8px" onclick="cancelTicket('${t.id}')">Cancel</button>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+    } catch(err) {
+      showAlert('tickets-alert', err.message, 'error');
+    }
+  }
+
+  async function cancelTicket(ticketId) {
+    if (!confirm('Cancel this ticket?')) return;
+    try {
+      await api('/api/tickets/' + ticketId + '/cancel', { method: 'DELETE' });
+      toast('Ticket cancelled. Refund in 3-5 days.', 'info');
+      loadMyTickets();
+      setTimeout(loadNotifications, 2000);
+    } catch(err) { toast(err.message, 'error'); }
+  }
+
+  // ── Notifications ──────────────────────────────────────────────────────────
+  async function loadNotifications() {
+    try {
+      const notifs = await api('/api/notifications' + (currentUser ? '?userId=' + currentUser.id : ''));
+      allNotifications = notifs;
+      const unread = notifs.filter(n => !n.readAt).length;
+      const badge = document.getElementById('notif-count');
+      if (unread > 0) { badge.textContent = unread; badge.classList.remove('hidden'); }
+      else { badge.classList.add('hidden'); }
+
+      const icons = { welcome: '🎉', booking: '✅', cancellation: '❌', alert: '⚠️' };
+      const list = document.getElementById('notifications-list');
+      if (!notifs.length) {
+        list.innerHTML = `<div class="empty-state"><div class="empty-icon">🔔</div><div class="empty-title">No notifications</div><p>Kafka events will appear here</p></div>`;
+        return;
+      }
+      list.innerHTML = notifs.map(n => {
+        const time = new Date(n.createdAt).toLocaleString();
+        return `
+          <div class="notif-item ${!n.readAt ? 'unread' : ''}" onclick="markRead('${n.id}')">
+            <div class="notif-icon">${icons[n.type] || '📣'}</div>
+            <div style="flex:1">
+              <div class="notif-title">${n.title}</div>
+              <div class="notif-msg">${n.message}</div>
+              <div class="notif-time">${time}</div>
+            </div>
+            ${!n.readAt ? '<div class="notif-unread-dot"></div>' : ''}
+          </div>`;
+      }).join('');
+    } catch(err) {
+      document.getElementById('notifications-list').innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-title">Could not load notifications</div><p>${err.message}</p></div>`;
+    }
+  }
+
+  async function markRead(id) {
+    try {
+      await api('/api/notifications/' + id + '/read', { method: 'PATCH' });
+      loadNotifications();
+    } catch(e) {}
+  }
+
+  // ── Auth ───────────────────────────────────────────────────────────────────
+  function renderAuth() {
+    if (currentUser) {
+      document.getElementById('auth-forms').style.display = 'none';
+      document.getElementById('auth-logged-in').style.display = 'block';
+      document.getElementById('auth-name').textContent = currentUser.name;
+      document.getElementById('auth-email').textContent = currentUser.email;
+      document.getElementById('auth-avatar').textContent = currentUser.name[0].toUpperCase();
+    } else {
+      document.getElementById('auth-forms').style.display = 'grid';
+      document.getElementById('auth-logged-in').style.display = 'none';
+    }
+  }
+
+  function updateUserUI() {
+    const pill = document.getElementById('user-pill');
+    if (currentUser) {
+      pill.style.display = 'flex';
+      document.getElementById('user-name-display').textContent = currentUser.name.split(' ')[0];
+      document.getElementById('user-avatar').textContent = currentUser.name[0].toUpperCase();
+    } else {
+      pill.style.display = 'none';
+    }
+  }
+
+  async function register() {
+    const name = document.getElementById('reg-name').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+    if (!name || !email || !password) { showAlert('reg-alert', 'All fields required', 'error'); return; }
+    try {
+      const user = await api('/api/users/register', { method: 'POST', body: { name, email, password } });
+      currentUser = user;
+      localStorage.setItem('tf_user', JSON.stringify(user));
+      updateUserUI();
+      renderAuth();
+      toast(`Welcome, ${user.name}! 🎉 A welcome notification was sent via Kafka.`, 'success');
+      setTimeout(loadNotifications, 2000);
+    } catch(err) { showAlert('reg-alert', err.message, 'error'); }
+  }
+
+  async function login() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) { showAlert('login-alert', 'All fields required', 'error'); return; }
+    try {
+      const user = await api('/api/users/login', { method: 'POST', body: { email, password } });
+      currentUser = user;
+      localStorage.setItem('tf_user', JSON.stringify(user));
+      updateUserUI();
+      renderAuth();
+      toast(`Welcome back, ${user.name}!`, 'success');
+    } catch(err) { showAlert('login-alert', err.message, 'error'); }
+  }
+
+  function logout() {
+    currentUser = null;
+    localStorage.removeItem('tf_user');
+    updateUserUI();
+    renderAuth();
+    toast('Signed out', 'info');
+  }
+
+  // ── Dashboard ──────────────────────────────────────────────────────────────
+  async function loadDashboard() {
+    // Check service health
+    const services = [
+      { id: 'user', url: '/api/users' },
+      { id: 'ticket', url: '/api/events' },
+      { id: 'notif', url: '/api/notifications' }
+    ];
+
+    for (const s of services) {
+      const dot = document.getElementById('dot-' + s.id);
+      try {
+        const r = await fetch(s.url);
+        dot.className = r.ok ? 'service-dot online' : 'service-dot offline';
+      } catch { dot.className = 'service-dot offline'; }
+    }
+
+    try {
+      const [events, notifStats] = await Promise.all([
+        api('/api/events'),
+        api('/api/notifications/stats')
+      ]);
+      document.getElementById('stat-events').textContent = events.length;
+      document.getElementById('stat-notifs').textContent = notifStats.total;
+      document.getElementById('stat-unread').textContent = notifStats.unread;
+    } catch(e) {}
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  updateUserUI();
+  loadEvents();
+
+  // Poll notifications every 10s
+  setInterval(loadNotifications, 10000);
+  loadNotifications();
+</script>
+</body>
+</html>

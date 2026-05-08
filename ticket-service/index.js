@@ -1,215 +1,264 @@
-const express = require('express');
+const express   = require('express');
 const { Kafka } = require('kafkajs');
 const { v4: uuidv4 } = require('uuid');
-const cors = require('cors');
-
+const jwt       = require('jsonwebtoken');
+const { pool, waitForDb } = require('./db');
+// ── App Setup ─────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
-app.use(cors());
+// ── Auth Setup ─────────────────────────────────────────────────────────────
+const JWT_SECRET = process.env.JWT_SECRET || 'ticketflow-secret-2026';
 
-// In-memory stores
-const events = new Map();
-const tickets = new Map();
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+const ROLE_PERMISSIONS = {
+  admin:   ['events:read','events:create','events:update','events:delete','tickets:read','tickets:create','tickets:cancel'],
+  manager: ['events:read','events:create','events:update','tickets:read','tickets:create','tickets:cancel'],
+  user:    ['events:read','tickets:read','tickets:create','tickets:cancel'],
+};
 
-// Seed some events
-const seedEvents = [
-  { id: uuidv4(), name: 'Coldplay World Tour 2025', venue: 'Cairo International Stadium', date: '2025-09-15', price: 150, totalSeats: 500, availableSeats: 500, category: 'Concert' },
-  { id: uuidv4(), name: 'Egypt Tech Summit', venue: 'Cairo Opera House', date: '2025-08-20', price: 75, totalSeats: 300, availableSeats: 300, category: 'Conference' },
-  { id: uuidv4(), name: 'Al Ahly vs Zamalek Derby', venue: 'Cairo International Stadium', date: '2025-07-30', price: 50, totalSeats: 1000, availableSeats: 1000, category: 'Sports' },
-  { id: uuidv4(), name: 'Cairo Jazz Festival', venue: 'El Sawy Culturewheel', date: '2025-10-05', price: 100, totalSeats: 200, availableSeats: 200, category: 'Music' },
-];
-seedEvents.forEach(e => events.set(e.id, e));
+async function getEffectivePermissions(userId, role) {
+  const base = ROLE_PERMISSIONS[role] || [];
+  try {
+    const [rows] = await pool.query(
+      'SELECT permission FROM user_extra_permissions WHERE user_id = ?', [userId]);
+    return [...new Set([...base, ...rows.map(r => r.permission)])];
+  } catch { return base; }
+}
+// ── Auth Middleware ─────────────────────────────────────────────────────────────
+async function requireAuth(req, res, next) {
+  const h = req.headers.authorization;
+  if (!h?.startsWith('Bearer ')) return res.status(401).json({ error: 'Authorization required' });
+  try {
+    const decoded = jwt.verify(h.slice(7), JWT_SECRET);
+    const perms   = await getEffectivePermissions(decoded.id, decoded.role);
+    req.user      = { ...decoded, permissions: perms };
+    next();
+  } catch { return res.status(401).json({ error: 'Invalid or expired token' }); }
+}
+// ── Permission Middleware ─────────────────────────────────────────────────────────────
+function requirePermission(perm) {
+  return (req, res, next) => {
+    if (!req.user?.permissions?.includes(perm))
+      return res.status(403).json({ error: `Access denied. Required: ${perm}`, yourRole: req.user?.role });
+    next();
+  };
+}
 
-// Kafka
-const kafka = new Kafka({
-  clientId: 'ticket-service',
-  brokers: [process.env.KAFKA_BROKER || 'kafka:9092'],
-  retry: { initialRetryTime: 3000, retries: 10 }
-});
-
+// ── Kafka ─────────────────────────────────────────────────────────────────────
+const kafka    = new Kafka({ clientId: 'ticket-service', brokers: [process.env.KAFKA_BROKER || 'kafka:9092'], retry: { initialRetryTime: 3000, retries: 10 } });
 const producer = kafka.producer();
 const consumer = kafka.consumer({ groupId: 'ticket-service-group' });
 
 async function connectKafka() {
-  let retries = 10;
-  while (retries > 0) {
+  for (let i = 0; i < 15; i++) {
     try {
       await producer.connect();
       await consumer.connect();
       await consumer.subscribe({ topics: ['user-events'], fromBeginning: false });
-
-      await consumer.run({
-        eachMessage: async ({ topic, message }) => {
-          const event = JSON.parse(message.value.toString());
-          console.log(`📥 Received [${topic}] event: ${event.eventType}`);
-          if (event.eventType === 'UserRegistered') {
-            console.log(`🎉 New user registered: ${event.name} (${event.email}) — welcome tickets can be offered!`);
-          }
-        }
-      });
-
-      console.log('✅ Ticket Service connected to Kafka');
+      await consumer.run({ eachMessage: async ({ message }) => {
+        const ev = JSON.parse(message.value.toString());
+        if (ev.eventType === 'UserRegistered') console.log(`📥 New user registered: ${ev.email} [${ev.role}]`);
+      }});
+      console.log('✅ Kafka connected');
       return;
-    } catch (err) {
-      console.log(`Kafka not ready, retrying... (${retries} left)`);
-      retries--;
-      await new Promise(r => setTimeout(r, 5000));
-    }
+    } catch { console.log(`Kafka retry ${i+1}/15...`); await new Promise(r => setTimeout(r, 5000)); }
   }
-  throw new Error('Failed to connect to Kafka');
 }
 
-// Routes
+// ── DB Init ───────────────────────────────────────────────────────────────────
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      id             VARCHAR(36)   PRIMARY KEY,
+      name           VARCHAR(255)  NOT NULL,
+      venue          VARCHAR(255)  NOT NULL,
+      date           VARCHAR(20)   NOT NULL,
+      price          DECIMAL(10,2) NOT NULL,
+      totalSeats     INT           NOT NULL,
+      availableSeats INT           NOT NULL,
+      category       VARCHAR(100)  DEFAULT 'General',
+      createdBy      VARCHAR(36),
+      createdAt      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  // add createdAt to existing tables that were created without it (ignore if already exists)
+  await pool.query(`ALTER TABLE events ADD COLUMN createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tickets (
+      id         VARCHAR(36)   PRIMARY KEY,
+      userId     VARCHAR(36)   NOT NULL,
+      userRole   VARCHAR(50),
+      eventId    VARCHAR(36)   NOT NULL,
+      eventName  VARCHAR(255),
+      venue      VARCHAR(255),
+      date       VARCHAR(20),
+      quantity   INT           DEFAULT 1,
+      totalPrice DECIMAL(10,2),
+      status     VARCHAR(20)   DEFAULT 'confirmed',
+      bookedAt   VARCHAR(50)
+    )
+  `);
+
+  const [[{ cnt }]] = await pool.query('SELECT COUNT(*) AS cnt FROM events');
+  if (cnt === 0) {
+    const seed = [
+      { name: 'Coldplay World Tour 2026',  venue: 'Cairo International Stadium', date: '2026-09-15', price: 150, totalSeats: 500,  category: 'Concert' },
+      { name: 'Egypt Tech Summit',          venue: 'Cairo Opera House',           date: '2026-08-20', price: 75,  totalSeats: 300,  category: 'Conference' },
+      { name: 'Al Ahly vs Zamalek Derby',  venue: 'Cairo International Stadium', date: '2026-07-30', price: 50,  totalSeats: 1000, category: 'Sports' },
+      { name: 'Cairo Jazz Festival',        venue: 'El Sawy Culturewheel',        date: '2026-10-05', price: 100, totalSeats: 200,  category: 'Music' },
+    ];
+    for (const e of seed) {
+      await pool.query(
+        'INSERT INTO events (id, name, venue, date, price, totalSeats, availableSeats, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [uuidv4(), e.name, e.venue, e.date, e.price, e.totalSeats, e.totalSeats, e.category]
+      );
+    }
+    console.log(' Seeded initial events');
+  }
+}
+
+// ── Routes ───────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'ticket-service' }));
 
-app.get('/api/events', (req, res) => {
-  res.json([...events.values()]);
-});
-
-app.get('/api/events/:id', (req, res) => {
-  const event = events.get(req.params.id);
-  if (!event) return res.status(404).json({ error: 'Event not found' });
-  res.json(event);
-});
-
-app.post('/api/events', (req, res) => {
-  const { name, venue, date, price, totalSeats, category } = req.body;
-  if (!name || !venue || !date || !price || !totalSeats)
-    return res.status(400).json({ error: 'Missing required fields' });
-
-  const event = { id: uuidv4(), name, venue, date, price: Number(price), totalSeats: Number(totalSeats), availableSeats: Number(totalSeats), category: category || 'General' };
-  events.set(event.id, event);
-  res.status(201).json(event);
-});
-
-app.post('/api/tickets/book', async (req, res) => {
+app.get('/api/events', async (_req, res) => {
   try {
-    const { userId, eventId, userName, userEmail, quantity = 1 } = req.body;
-    if (!userId || !eventId) return res.status(400).json({ error: 'userId and eventId required' });
+    const [rows] = await pool.query('SELECT * FROM events ORDER BY createdAt DESC');
+    res.json(rows);
+  } catch (err) { console.error('[GET /api/events]', err); res.status(500).json({ error: 'Failed to fetch events' }); }
+});
 
-    const event = events.get(eventId);
-    if (!event) return res.status(404).json({ error: 'Event not found' });
-    if (event.availableSeats < quantity)
-      return res.status(409).json({ error: `Only ${event.availableSeats} seats available` });
+app.get('/api/events/:id', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM events WHERE id = ?', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Event not found' });
+    res.json(rows[0]);
+  } catch (err) { console.error('[GET /api/events/:id]', err); res.status(500).json({ error: 'Failed to fetch event' }); }
+});
 
-    // Reserve seats
-    event.availableSeats -= quantity;
-    events.set(eventId, event);
+// ── Create Event ──────────────────────────────────────────────────────────────
+app.post('/api/events', requireAuth, requirePermission('events:create'), async (req, res) => {
+  try {
+    const { name, venue, date, price, totalSeats, category } = req.body;
+    if (!name || !venue || !date || !price || !totalSeats) return res.status(400).json({ error: 'Missing fields' });
+    const id = uuidv4();
+    await pool.query(
+      'INSERT INTO events (id, name, venue, date, price, totalSeats, availableSeats, category, createdBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, name, venue, date, +price, +totalSeats, +totalSeats, category || 'General', req.user.id]
+    );
+    const [rows] = await pool.query('SELECT * FROM events WHERE id = ?', [id]);
+    console.log(`✅ Event created: "${name}" by ${req.user.email}`);
+    res.status(201).json(rows[0]);
+  } catch (err) { console.error('[POST /api/events]', err); res.status(500).json({ error: 'Failed to create event' }); }
+});
 
+// ── Update Event ──────────────────────────────────────────────────────────────
+app.patch('/api/events/:id', requireAuth, requirePermission('events:update'), async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM events WHERE id = ?', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Event not found' });
+    const updates = [];
+    const values  = [];
+    ['name','venue','date','price','category'].forEach(k => {
+      if (req.body[k] !== undefined) { updates.push(`${k} = ?`); values.push(req.body[k]); }
+    });
+    if (updates.length) {
+      values.push(req.params.id);
+      await pool.query(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`, values);
+    }
+    const [updated] = await pool.query('SELECT * FROM events WHERE id = ?', [req.params.id]);
+    res.json(updated[0]);
+  } catch (err) { console.error('[PATCH /api/events/:id]', err); res.status(500).json({ error: 'Failed to update event' }); }
+});
+
+// ── Delete Event ──────────────────────────────────────────────────────────────
+app.delete('/api/events/:id', requireAuth, requirePermission('events:delete'), async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id FROM events WHERE id = ?', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Event not found' });
+    await pool.query('DELETE FROM events WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Event deleted' });
+  } catch (err) { console.error('[DELETE /api/events/:id]', err); res.status(500).json({ error: 'Failed to delete event' }); }
+});
+
+// ── Book Ticket ───────────────────────────────────────────────────────────────
+app.post('/api/tickets/book', requireAuth, requirePermission('tickets:create'), async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { eventId, quantity = 1 } = req.body;
+    const [evRows] = await conn.query('SELECT * FROM events WHERE id = ? FOR UPDATE', [eventId]);
+    if (!evRows.length) { await conn.rollback(); return res.status(404).json({ error: 'Event not found' }); }
+    const ev = evRows[0];
+    if (ev.availableSeats < quantity) { await conn.rollback(); return res.status(409).json({ error: `Only ${ev.availableSeats} seats left` }); }
+    await conn.query('UPDATE events SET availableSeats = availableSeats - ? WHERE id = ?', [quantity, eventId]);
     const ticket = {
-      id: uuidv4(),
-      userId,
-      eventId,
-      eventName: event.name,
-      venue: event.venue,
-      date: event.date,
-      quantity,
-      totalPrice: event.price * quantity,
-      status: 'confirmed',
-      bookedAt: new Date().toISOString()
+      id: uuidv4(), userId: req.user.id, userRole: req.user.role, eventId,
+      eventName: ev.name, venue: ev.venue, date: ev.date, quantity,
+      totalPrice: ev.price * quantity, status: 'confirmed', bookedAt: new Date().toISOString(),
     };
-    tickets.set(ticket.id, ticket);
+    await conn.query(
+      'INSERT INTO tickets (id, userId, userRole, eventId, eventName, venue, date, quantity, totalPrice, status, bookedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [ticket.id, ticket.userId, ticket.userRole, ticket.eventId, ticket.eventName, ticket.venue, ticket.date, ticket.quantity, ticket.totalPrice, ticket.status, ticket.bookedAt]
+    );
+    await conn.commit();
 
-    // Publish TicketBooked event
-    await producer.send({
-      topic: 'ticket-events',
-      messages: [{
-        key: ticket.id,
-        value: JSON.stringify({
-          eventType: 'TicketBooked',
-          ticketId: ticket.id,
-          userId,
-          userName: userName || 'Guest',
-          userEmail: userEmail || '',
-          eventId,
-          eventName: event.name,
-          venue: event.venue,
-          eventDate: event.date,
-          quantity,
-          totalPrice: ticket.totalPrice,
-          timestamp: new Date().toISOString()
-        })
-      }]
-    });
+    await producer.send({ topic: 'ticket-events', messages: [{ key: ticket.id, value: JSON.stringify({ eventType: 'TicketBooked', ticketId: ticket.id, userId: req.user.id, userRole: req.user.role, userEmail: req.user.email, eventName: ev.name, venue: ev.venue, eventDate: ev.date, quantity, totalPrice: ticket.totalPrice, timestamp: new Date().toISOString() }) }] });
 
-    // Check if seats are running low
-    if (event.availableSeats < event.totalSeats * 0.1) {
-      await producer.send({
-        topic: 'ticket-events',
-        messages: [{
-          key: eventId,
-          value: JSON.stringify({
-            eventType: 'LowSeatsAlert',
-            eventId,
-            eventName: event.name,
-            availableSeats: event.availableSeats,
-            timestamp: new Date().toISOString()
-          })
-        }]
-      });
-      console.log(`⚠️ Published LowSeatsAlert for event: ${event.name}`);
-    }
+    const newAvailable = ev.availableSeats - quantity;
+    if (newAvailable < ev.totalSeats * 0.1)
+      await producer.send({ topic: 'ticket-events', messages: [{ key: eventId, value: JSON.stringify({ eventType: 'LowSeatsAlert', eventId, eventName: ev.name, availableSeats: newAvailable, timestamp: new Date().toISOString() }) }] });
 
-    console.log(`📤 Published TicketBooked: ${ticket.id}`);
     res.status(201).json(ticket);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Booking failed' });
-  }
+  } catch (err) { await conn.rollback(); console.error(err); res.status(500).json({ error: 'Booking failed' }); }
+  finally { conn.release(); }
 });
 
-app.get('/api/tickets/user/:userId', (req, res) => {
-  const userTickets = [...tickets.values()].filter(t => t.userId === req.params.userId);
-  res.json(userTickets);
-});
-
-app.get('/api/tickets/:id', (req, res) => {
-  const ticket = tickets.get(req.params.id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-  res.json(ticket);
-});
-
-app.delete('/api/tickets/:id/cancel', async (req, res) => {
+// ── Get User Tickets ──────────────────────────────────────────────────────────
+app.get('/api/tickets/user/:userId', requireAuth, requirePermission('tickets:read'), async (req, res) => {
   try {
-    const ticket = tickets.get(req.params.id);
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (ticket.status === 'cancelled') return res.status(400).json({ error: 'Already cancelled' });
-
-    ticket.status = 'cancelled';
-    tickets.set(ticket.id, ticket);
-
-    // Restore seats
-    const event = events.get(ticket.eventId);
-    if (event) {
-      event.availableSeats += ticket.quantity;
-      events.set(event.id, event);
-    }
-
-    await producer.send({
-      topic: 'ticket-events',
-      messages: [{
-        key: ticket.id,
-        value: JSON.stringify({
-          eventType: 'TicketCancelled',
-          ticketId: ticket.id,
-          userId: ticket.userId,
-          eventName: ticket.eventName,
-          timestamp: new Date().toISOString()
-        })
-      }]
-    });
-
-    res.json({ message: 'Ticket cancelled', ticket });
-  } catch (err) {
-    res.status(500).json({ error: 'Cancellation failed' });
-  }
+    const isOwn     = req.params.userId === req.user.id;
+    const canSeeAll = ['admin','manager'].includes(req.user.role);
+    if (!isOwn && !canSeeAll) return res.status(403).json({ error: 'Cannot view others tickets' });
+    const [rows] = await pool.query('SELECT * FROM tickets WHERE userId = ?', [req.params.userId]);
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Failed to fetch tickets' }); }
 });
 
+// ── Get All Tickets ───────────────────────────────────────────────────────────
+app.get('/api/tickets', requireAuth, requirePermission('tickets:read'), async (req, res) => {
+  try {
+    if (!['admin','manager'].includes(req.user.role)) return res.status(403).json({ error: 'Admin/Manager only' });
+    const [rows] = await pool.query('SELECT * FROM tickets');
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Failed to fetch tickets' }); }
+});
+
+// ── Cancel Ticket ─────────────────────────────────────────────────────────────
+app.delete('/api/tickets/:id/cancel', requireAuth, requirePermission('tickets:cancel'), async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query('SELECT * FROM tickets WHERE id = ? FOR UPDATE', [req.params.id]);
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ error: 'Ticket not found' }); }
+    const ticket = rows[0];
+    if (ticket.status === 'cancelled') { await conn.rollback(); return res.status(400).json({ error: 'Already cancelled' }); }
+    const isOwn = ticket.userId === req.user.id;
+    if (!isOwn && !['admin','manager'].includes(req.user.role)) { await conn.rollback(); return res.status(403).json({ error: 'Cannot cancel others tickets' }); }
+    await conn.query('UPDATE tickets SET status = ? WHERE id = ?', ['cancelled', ticket.id]);
+    await conn.query('UPDATE events SET availableSeats = availableSeats + ? WHERE id = ?', [ticket.quantity, ticket.eventId]);
+    await conn.commit();
+
+    await producer.send({ topic: 'ticket-events', messages: [{ key: ticket.id, value: JSON.stringify({ eventType: 'TicketCancelled', ticketId: ticket.id, userId: ticket.userId, eventName: ticket.eventName, cancelledBy: req.user.email, timestamp: new Date().toISOString() }) }] });
+    res.json({ message: 'Cancelled', ticket: { ...ticket, status: 'cancelled' } });
+  } catch (err) { await conn.rollback(); res.status(500).json({ error: 'Cancellation failed' }); }
+  finally { conn.release(); }
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3002;
-
-connectKafka().then(() => {
-  app.listen(PORT, () => console.log(`🚀 Ticket Service running on port ${PORT}`));
-}).catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+(async () => {
+  await waitForDb();
+  await initDb();
+  await connectKafka();
+  app.listen(PORT, () => console.log(`🚀 Ticket Service :${PORT}`));
+})();

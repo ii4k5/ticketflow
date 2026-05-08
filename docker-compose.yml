@@ -1,14 +1,37 @@
 version: '3.8'
 
 services:
-  # ─── Infrastructure ────────────────────────────────────────────────────────
 
+  # ─── MySQL ────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: ticketflow-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE:      ticketflow
+      MYSQL_USER:          ticketflow
+      MYSQL_PASSWORD:      ticketflow123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ticketflow", "-pticketflow123"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ticketflow-net
+
+  # ─── Zookeeper ───────────────────────────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: ticketflow-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_TICK_TIME:   2000
     healthcheck:
       test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
       interval: 10s
@@ -17,6 +40,7 @@ services:
     networks:
       - ticketflow-net
 
+  # ─── Kafka ───────────────────────────────────────────────────────────────
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: ticketflow-kafka
@@ -25,7 +49,6 @@ services:
         condition: service_healthy
     ports:
       - "9092:9092"
-      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -34,7 +57,6 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 24
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 15s
@@ -57,76 +79,67 @@ services:
     networks:
       - ticketflow-net
 
-  # ─── Microservices ──────────────────────────────────────────────────────────
-
+  # ─── Microservices ────────────────────────────────────────────────────────
   user-service:
-    build:
-      context: ./user-service
-      dockerfile: Dockerfile
+    build: ./user-service
     container_name: ticketflow-user-service
     depends_on:
+      mysql:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     environment:
-      PORT: 3001
+      PORT:        3001
+      DB_HOST:     mysql
+      DB_USER:     ticketflow
+      DB_PASSWORD: ticketflow123
+      DB_NAME:     ticketflow
       KAFKA_BROKER: kafka:9092
+      JWT_SECRET:  ticketflow-secret-2025
     ports:
       - "3001:3001"
     restart: on-failure
     networks:
       - ticketflow-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
 
   ticket-service:
-    build:
-      context: ./ticket-service
-      dockerfile: Dockerfile
+    build: ./ticket-service
     container_name: ticketflow-ticket-service
     depends_on:
+      mysql:
+        condition: service_healthy
       kafka:
         condition: service_healthy
     environment:
-      PORT: 3002
+      PORT:        3002
+      DB_HOST:     mysql
+      DB_USER:     ticketflow
+      DB_PASSWORD: ticketflow123
+      DB_NAME:     ticketflow
       KAFKA_BROKER: kafka:9092
+      JWT_SECRET:  ticketflow-secret-2025
     ports:
       - "3002:3002"
     restart: on-failure
     networks:
       - ticketflow-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
 
   notification-service:
-    build:
-      context: ./notification-service
-      dockerfile: Dockerfile
+    build: ./notification-service
     container_name: ticketflow-notification-service
     depends_on:
       kafka:
         condition: service_healthy
     environment:
-      PORT: 3003
+      PORT:        3003
       KAFKA_BROKER: kafka:9092
     ports:
       - "3003:3003"
     restart: on-failure
     networks:
       - ticketflow-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3003/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
 
-  # ─── Frontend + API Gateway ─────────────────────────────────────────────────
-
+  # ─── Nginx (Frontend + API Gateway) ───────────────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: ticketflow-nginx
@@ -141,6 +154,9 @@ services:
       - ./frontend:/usr/share/nginx/html:ro
     networks:
       - ticketflow-net
+
+volumes:
+  mysql_data:
 
 networks:
   ticketflow-net:
